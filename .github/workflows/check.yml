@@ -1,0 +1,107 @@
+name: Check firmware update
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: "SM-T720"
+            region: "BTU"
+          - model: "SM-T725"
+            region: "BTU"
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+
+    - name: Install dependencies
+      run: |
+       sudo apt-get update
+       sudo apt-get install -y python3-setuptools
+       sudo pip3 install git+https://github.com/topjohnwu/samloader.git
+
+    - name: Compare latest version with current version
+      id: check
+      run: |
+       need_update=0
+       latest=`python3 -m samloader -m ${{ matrix.model }} -r ${{ matrix.region }} checkupdate`
+       latest_short=`echo $latest | cut -d'/' -f1`
+       latest_modem=`echo $latest | cut -d'/' -f3`
+       current=`cat current.${{ matrix.model }}` || need_update=1
+       [[ $latest != $current ]] && need_update=1
+       echo ::set-output name=latest_version::$latest
+       echo ::set-output name=latest_shortversion::$latest_short
+       echo ::set-output name=latest_modemversion::$latest_modem
+       echo ::set-output name=need_update::$need_update
+
+    - name: Fetch firmware
+      if: steps.check.outputs.need_update == 1
+      run: |
+        python3 -m samloader -m ${{ matrix.model }} -r ${{ matrix.region }} download -v ${{ steps.check.outputs.latest_version }} -o fw_encrypted
+        python3 -m samloader -m ${{ matrix.model }} -r ${{ matrix.region }} decrypt -v ${{ steps.check.outputs.latest_version }} -V 4 -i fw_encrypted -o fw_decrypted
+        unzip fw_decrypted "AP_*" "BL_*"
+        unzip fw_decrypted "CP_*" || true
+        rm fw_encrypted fw_decrypted
+
+    - name: Get path of files
+      if: steps.check.outputs.need_update == 1
+      id: files
+      run: |
+       echo ::set-output name=ap::`find -name AP*`
+       echo ::set-output name=bl::`find -name BL*`
+       echo ::set-output name=cp::`find -name CP*`
+
+    - name: Check contents of downloaded firmware
+      if: steps.check.outputs.need_update == 1
+      run: |
+       tar tvf ${{ steps.files.outputs.ap }}
+       tar tvf ${{ steps.files.outputs.bl }}
+       tar tvf ${{ steps.files.outputs.cp }} || true
+
+    - name: Remove unwanted files from AP and BL
+      if: steps.check.outputs.need_update == 1
+      run: |
+       tar vf ${{ steps.files.outputs.ap }} --delete boot.img.lz4 recovery.img.lz4 system.img.ext4.lz4 dtbo.img.lz4 vendor.img.ext4.lz4 persist.img.ext4.lz4 userdata.img.ext4.lz4 vbmeta.img.lz4 meta-data
+       md5sum ${{ steps.files.outputs.ap }} | sed "s/\.md5$//" >> ${{ steps.files.outputs.ap }}
+       tar vf ${{ steps.files.outputs.bl }} --delete vbmeta.img.lz4
+       md5sum ${{ steps.files.outputs.bl }} | sed "s/\.md5$//" >> ${{ steps.files.outputs.bl }}
+
+    - name: Update current version
+      if: steps.check.outputs.need_update == 1
+      run: |
+       git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+       git config --local user.name "github-actions[bot]"
+       git pull origin ${{github.ref}} --ff-only
+       echo ${{ steps.check.outputs.latest_version }} > current.${{ matrix.model }}
+       git add current.${{ matrix.model }}
+       git commit -m "${{ matrix.model }}: ${{ steps.check.outputs.latest_version }}"
+       git tag ${{ steps.check.outputs.latest_shortversion }}
+
+    - name: Push changes to repo
+      if: steps.check.outputs.need_update == 1
+      uses: ad-m/github-push-action@master
+      with:
+       tags: true
+       github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload release assets
+      if: steps.check.outputs.need_update == 1
+      uses: softprops/action-gh-release@v1
+      env:
+       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+       tag_name: ${{ steps.check.outputs.latest_shortversion }}
+       files: |
+        ${{ steps.files.outputs.ap }}
+        ${{ steps.files.outputs.bl }}
+        ${{ steps.files.outputs.cp }}
