@@ -28,7 +28,7 @@ jobs:
       run: |
        sudo apt-get update
        sudo apt-get install -y python3-setuptools
-       sudo pip3 install git+https://github.com/topjohnwu/samloader.git
+       sudo pip3 install git+https://github.com/nlscc/samloader.git
 
     - name: Compare latest version with current version
       id: check
