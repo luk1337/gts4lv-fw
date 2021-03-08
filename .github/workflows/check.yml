@@ -14,9 +14,9 @@ jobs:
       matrix:
         include:
           - model: "SM-T720"
-            region: "BTU"
+            region: "XSA"
           - model: "SM-T725"
-            region: "BTU"
+            region: "XSA"
 
     steps:
     - name: Checkout repo
