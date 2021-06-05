@@ -17,6 +17,12 @@ jobs:
             region: "BTU"
           - model: "SM-T725"
             region: "BTU"
+          - model: "SM-T725C"
+            region: "CHC"
+          - model: "SM-T725N"
+            region: "KOO"
+          - model: "SM-T727"
+            region: "TUR"
 
     steps:
     - name: Checkout repo
